@@ -1,0 +1,16 @@
+{
+    "files.associations": {
+        "*.sqlbook": "sql",
+        "*.ndjson": "jsonl",
+        "*.dbclient-js": "javascript",
+        "plyconfig.json": "jsonc"
+    },
+    "cSpell.words": [
+        "ENAMEX",
+        "ilike",
+        "jsonify",
+        "NUMEX",
+        "मंत्रा",
+        "राजभाषा"
+    ]
+}
