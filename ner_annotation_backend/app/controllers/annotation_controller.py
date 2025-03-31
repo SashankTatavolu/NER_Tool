@@ -93,10 +93,8 @@ def search_annotations_route():
     if not word_phrase:
         return jsonify({'message': 'word_phrase is required'}), 400
 
-    language = data.get("language")  # Optional field
-
     # Call the service method
-    results = search_annotations(word_phrase, language)
+    results = search_annotations(word_phrase)
 
     if not results:
         return jsonify({'message': 'No annotations found matching the criteria'}), 404
@@ -110,10 +108,14 @@ def search_sentences_by_annotation_route():
     current_user = get_jwt_identity()
     data = request.json
     annotation_text = data.get('annotation_text')
-    language = data.get('language')
+    project_title = data.get('project_title')
 
     if not annotation_text:
         return jsonify({'message': 'Annotation text is required'}), 400
 
-    results = search_sentences_by_annotation(annotation_text, language)
+    # If project_title is "All" or empty, set it to None to fetch all projects
+    if not project_title or project_title.lower() == "all":
+        project_title = None
+
+    results = search_sentences_by_annotation(annotation_text, project_title)
     return jsonify(results), 200

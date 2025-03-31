@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..services.project_service import assign_user_to_project, create_project, delete_project, get_projects_by_language, get_projects, \
-    get_projects_with_annotation_counts_with_language, get_projects_with_annotation_counts, is_user_assigned_to_project, update_project_title
+from ..services.project_service import assign_user_to_project, create_project, delete_project,get_projects,get_projects_with_annotation_counts_for_user, get_projects_with_annotation_counts, is_user_assigned_to_project, update_project_title, send_assignment_email
 from ..schemas.project_schema import project_schema, projects_schema
-from ..services.user_service import get_user_language, get_user_role
+from ..services.user_service import get_user_language, get_user_role,get_user_id
+from ..models.user_model import User
+from ..models.project_model import Project
+
 
 project_blueprint = Blueprint('project_blueprint', __name__)
 
@@ -14,10 +16,12 @@ def get_project_list():
     current_user = get_jwt_identity()
     user_role = get_user_role(current_user)
     user_language = get_user_language(current_user)
+    user_id = get_user_id(current_user)
+    
     if user_role == 'Admin':
-        projects_with_counts = get_projects_with_annotation_counts()
+        projects_with_counts = get_projects_with_annotation_counts(user_language)
     else:
-        projects_with_counts = get_projects_with_annotation_counts_with_language(user_language)
+        projects_with_counts = get_projects_with_annotation_counts_for_user(user_id)
 
     projects_data = []
 
@@ -35,14 +39,6 @@ def get_project_list():
     # Use jsonify to convert the list of dictionaries to a JSON response
     return jsonify(projects_data)
 
-
-# @project_blueprint.route('/add_project', methods=['POST'])
-# @jwt_required()
-# def add_project():
-#     current_user = get_jwt_identity()
-#     data = request.json
-#     project = create_project(data, current_user)
-#     return project_schema.jsonify(project), 201
 
 @project_blueprint.route('/add_project', methods=['POST'])
 @jwt_required()
@@ -115,14 +111,23 @@ def assign_user_to_project_route(project_id):
     current_user = get_jwt_identity()
     user_role = get_user_role(current_user)
     
-    # Only allow admins to assign users to projects
     if user_role != 'Admin':
         return {"message": "Permission denied"}, 403
 
     data = request.json
     user_id = data.get("user_id")
 
+    # Assign user to project
     result, status_code = assign_user_to_project(project_id, user_id)
+
+    if status_code == 200:  # If assignment was successful
+        # Fetch user details
+        user = User.query.get(user_id)
+        project = Project.query.get(project_id)
+        
+        # if user and project:
+        #     send_assignment_email(user.email, user.name, project.title)
+
     return jsonify(result), status_code
 
 @project_blueprint.route('/is_user_assigned/<int:project_id>', methods=['GET'])

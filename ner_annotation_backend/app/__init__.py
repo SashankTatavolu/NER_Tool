@@ -15,7 +15,7 @@ mail = Mail()
 
 def create_app():
     app = Flask(__name__)
-    #app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@10.129.6.206/mweAnnotationPlatform'
+    # app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@10.129.6.206/mweAnnotationPlatform'
     app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Sashank123@localhost/NER'
     # app.config['SQLALCHEMY_DATABASE_URI']='postgresql://postgres:password123@10.2.8.12/MWE_tool'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -24,8 +24,8 @@ def create_app():
     app.config['MAIL_SERVER'] = 'smtp.gmail.com'
     app.config['MAIL_PORT'] = 587
     app.config['MAIL_USE_TLS'] = True
-    app.config['MAIL_USERNAME'] = "swethapoppoppu@gmail.com"
-    app.config['MAIL_PASSWORD'] = "ufec wkhp syss ynqa"
+    app.config['MAIL_USERNAME'] = "mwa.iiith@gmail.com"
+    app.config['MAIL_PASSWORD'] = "jjmd umfd lpds yzvh"
     mail.init_app(app)
 
     bcrypt.init_app(app)

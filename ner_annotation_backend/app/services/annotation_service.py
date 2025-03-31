@@ -195,16 +195,15 @@ def upload_annotated_xml(file, user):
         return jsonify({'message': f'An error occurred: {str(e)}'}), 500
 
 
-def search_annotations(word_phrase, language=None):
-    # Start the query for annotations
+def search_annotations(word_phrase):
+    # Start the query for annotations filtered by word_phrase
     query = Annotation.query.filter(Annotation.word_phrase.ilike(f"%{word_phrase}%"))
 
-    # If a language is specified, join with the Project table and filter by language
-    if language:
-        query = query.join(Project).filter(Project.language.ilike(f"%{language}%"))
+    # Join Sentence and Project to fetch related data
+    query = query.join(Sentence).join(Project)
 
-    # Fetch the annotations with their related sentences
-    annotations = query.join(Sentence).all()
+    # Fetch the annotations
+    annotations = query.all()
 
     results = [
         {
@@ -213,37 +212,42 @@ def search_annotations(word_phrase, language=None):
             "annotation": annotation.annotation,
             "annotated_by": annotation.annotated_by,
             "annotated_on": annotation.annotated_on.strftime("%Y-%m-%d"),
-            "sentence_text": annotation.sentence.content,  # Fetch the sentence text
+            "sentence_text": annotation.sentence.content,  # Fetch sentence text
             "sentence_id": annotation.sentence_id,
             "project_id": annotation.project_id,
+            "project_title": annotation.project.title
         }
         for annotation in annotations
     ]
 
     return results
 
-def search_sentences_by_annotation(annotation_text, language=None):
-    # Start the query for annotations
-    query = Annotation.query.filter(Annotation.annotation.ilike(f"%{annotation_text}%"))
 
-    # If a language is specified, join with the Project table and filter by language
-    if language:
-        query = query.join(Project).filter(Project.language.ilike(f"%{language}%"))
+def search_sentences_by_annotation(annotation_text, project_title=None):
+    # Start the query for annotations that match the annotation text
+    query = Annotation.query \
+        .join(Sentence) \
+        .join(Project) \
+        .filter(Annotation.annotation.ilike(f"%{annotation_text}%"))
 
-    # Fetch the annotations with their related sentences
-    annotations = query.join(Sentence).all()
+    # If project_title is provided and not set to "All", filter by project title
+    if project_title and project_title.lower() != "All":
+        query = query.filter(Project.title.ilike(f"%{project_title}%"))
 
+    # Fetch matching annotations
+    annotations = query.all()
+
+    # Format results
     results = [
         {
             "word_phrase": annotation.word_phrase,
             "annotation": annotation.annotation,
-            "sentence_text": annotation.sentence.content,  # Fetch the sentence content
+            "sentence_text": annotation.sentence.content,
             "sentence_id": annotation.sentence_id,
             "project_id": annotation.project_id,
-            "project_language": annotation.sentence.project.language  # Include project language for clarity
+            "project_title": annotation.project.title,
         }
         for annotation in annotations
     ]
 
     return results
-

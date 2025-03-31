@@ -5,7 +5,9 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 
 from ..models.user_model import User
 
-from ..services.user_service import create_user, check_user, get_users_by_organisation, reset_password, send_reset_otp, verify_otp
+from ..services.user_service import create_user, check_user, get_users_by_organisation, reset_password, send_reset_otp, verify_otp, update_user_profile, get_user_details, send_feedback_email, get_user_language
+from .. import db
+from .. import mail
 from ..schemas.user_schema import user_schema
 from ..models.sentence_model import Sentence
 
@@ -39,7 +41,8 @@ def login_user():
         return jsonify(
             access_token=access_token,
             role=user.role,
-            organisation=user.organisation  # Assuming a relationship to Organization
+            organisation=user.organisation,
+            name=user.name# Assuming a relationship to Organization
         ), 200
     else:
         return jsonify({"message": "Invalid email or password"}), 401
@@ -111,3 +114,71 @@ def reset_user_password():
     if reset_password(email, new_password):
         return jsonify({"message": "Password reset successful"}), 200
     return jsonify({"error": "User not found"}), 404
+
+
+
+@user_blueprint.route('/update-profile', methods=['PUT'])
+@jwt_required()
+def update_profile():
+    current_email = get_jwt_identity()  # Get the logged-in user’s email
+    data = request.get_json()
+
+    updated_user = update_user_profile(current_email, data)
+    if updated_user:
+        return jsonify({"message": "Profile updated successfully"}), 200
+    return jsonify({"error": "User not found"}), 404
+
+
+@user_blueprint.route('/user-details', methods=['GET'])
+@jwt_required()
+def get_logged_in_user_details():
+    current_email = get_jwt_identity()  # Get email from JWT token
+    user_details = get_user_details(current_email)
+    
+    if user_details:
+        return jsonify(user_details), 200
+    return jsonify({"error": "User not found"}), 404
+
+
+@user_blueprint.route('/delete-user/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user(user_id):
+    current_email = get_jwt_identity()
+    admin_user = User.query.filter_by(email=current_email).first()
+
+    if not admin_user or admin_user.role != "Admin":
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    user_to_delete = User.query.get(user_id)
+
+    if not user_to_delete:
+        return jsonify({"error": "User not found"}), 404
+
+    # Ensure admin can only delete users from the same organisation
+    if admin_user.organisation != user_to_delete.organisation:
+        return jsonify({"error": "You can only delete users from your own organisation"}), 403
+
+    # Prevent deleting other admins
+    if user_to_delete.role == "Admin":
+        return jsonify({"error": "Cannot delete another admin"}), 403
+
+    db.session.delete(user_to_delete)
+    db.session.commit()
+
+    return jsonify({"message": f"User {user_to_delete.name} deleted successfully"}), 200
+
+
+@user_blueprint.route('/submit-feedback', methods=['POST'])
+@jwt_required()  # Protect this endpoint, requiring the user to be logged in
+def submit_feedback():
+    user_email = get_jwt_identity()  # Get the current user's email from the JWT token
+    data = request.get_json()
+
+    user_name = data.get('user_name')  # Name of the user submitting the feedback
+    feedback_text = data.get('feedback_text')  # The feedback text
+
+    # Call the function to send the feedback email to the admin
+    if send_feedback_email(user_name, user_email, feedback_text):
+        return jsonify({"message": "Feedback submitted successfully."}), 200
+    else:
+        return jsonify({"error": "Failed to send feedback email."}), 500

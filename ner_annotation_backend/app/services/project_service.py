@@ -2,44 +2,19 @@ import datetime
 import re
 
 from flask import jsonify
+from flask_mail import Message
 from sqlalchemy import func
 
 from app.models.annotation_model import Annotation
 from app.models.user_model import User
 
-from .. import db
+from .. import db,mail
 from ..models.project_model import Project
 import xml.etree.ElementTree as ET
 import html
 import re
 import datetime
 from ..models.sentence_model import Sentence
-
-    # def create_project(data, current_user):
-    #     new_project = Project(
-    #         title=data['title'],
-    #         description=data['description'],
-    #         language=data['language'],
-    #         file_text=data['file_text'],
-    #         uploaded_by=current_user,
-    #         uploaded_on=datetime.datetime.now()
-    #     )
-
-    #     db.session.add(new_project)
-    #     db.session.flush()
-    #     sentences = split_into_sentences(data['file_text'])
-    #     for sentence_text in sentences:
-    #         sentence = Sentence(content=sentence_text.strip(), project_id=new_project.id, is_annotated=False)
-    #         db.session.add(sentence)
-
-    #     db.session.commit()
-    #     return new_project
-
-
-import xml.etree.ElementTree as ET
-import html
-import re
-import datetime
 
 def create_project(data, current_user):
     print("Creating Project...")  # Debugging
@@ -57,10 +32,7 @@ def create_project(data, current_user):
     db.session.flush()  # Get new_project.id before committing
 
     file_text = data['file_text'].strip()
-
-    # Check if input is XML or plain text
     is_xml = file_text.startswith("<") and file_text.endswith(">")
-
     sentence_counter = 1  # Start numbering from 1 for this project
 
     if is_xml:
@@ -69,55 +41,11 @@ def create_project(data, current_user):
             root = ET.fromstring(file_text)  # Parse XML
             print("XML Parsed Successfully.")  # Debugging
 
-            # Check if this is the NEW format (Root is <project>)
-            if root.tag == "project":
-                print("Processing NEW Annotated XML format.")  # Debugging
-                sentences_root = root.find("./sentences")
+            decoded_text = html.unescape(file_text)
+            contains_inline_annotations = re.search(r'<(TIMEX|NUMEX)', decoded_text) is not None
 
-                if sentences_root is None:
-                    raise ValueError("Invalid XML: <sentences> tag missing inside <project>.")
-
-                for sentence_elem in sentences_root.findall(".//sentence"):
-                    raw_text = sentence_elem.get("text", "").strip()
-                    is_annotated = sentence_elem.get("isAnnotated") == "True"
-
-                    print(f"Processing Sentence {sentence_counter}: {raw_text}")
-
-                    sentence = Sentence(
-                        sentence_number=sentence_counter,  # Ensure numbering within the project
-                        content=raw_text,
-                        is_annotated=is_annotated,
-                        project_id=new_project.id
-                    )
-                    db.session.add(sentence)
-                    db.session.flush()  # Ensure sentence.id is generated
-
-                    annotations_elem = sentence_elem.find("annotations")
-                    if annotations_elem is not None:
-                        for annotation_elem in annotations_elem.findall("annotation"):
-                            annotation_id = annotation_elem.get("id")
-                            annotated_word = annotation_elem.get("word_phrase")
-                            annotation_type = annotation_elem.get("annotation")
-                            annotated_by = annotation_elem.get("annotated_by")
-                            annotated_on = annotation_elem.get("annotated_on")
-
-                            print(f"Saving Annotation ID {annotation_id}: {annotation_type} -> {annotated_word}")
-
-                            annotation_record = Annotation(
-                                word_phrase=annotated_word,
-                                annotation=annotation_type,
-                                annotated_by=annotated_by,
-                                annotated_on=datetime.datetime.strptime(annotated_on, "%Y-%m-%d"),
-                                sentence_id=sentence.id,  # Link to newly assigned ID
-                                project_id=new_project.id
-                            )
-                            db.session.add(annotation_record)
-
-                    sentence_counter += 1  # Increment for the next sentence in this project
-
-            else:
-                # OLD LOGIC: Process existing XML format
-                print("Processing OLD XML format.")  # Debugging
+            if contains_inline_annotations:
+                print("Detected inline annotations. Processing OLD XML format.")
                 for sentence_elem in root.findall(".//sentence"):
                     raw_text = sentence_elem.get("text", "").strip()
                     is_annotated = sentence_elem.get("isAnnotated") == "True"
@@ -174,6 +102,50 @@ def create_project(data, current_user):
                             db.session.add(annotation_record)
 
                     sentence_counter += 1  # Increment for next sentence
+            
+            else:
+                print("Processing NEW Annotated XML format.")  # Debugging
+                sentences_root = root.find("./sentences")
+                if sentences_root is None:
+                    raise ValueError("Invalid XML: <sentences> tag missing inside <project>.")
+                
+                for sentence_elem in sentences_root.findall(".//sentence"):
+                    raw_text = sentence_elem.get("text", "").strip()
+                    is_annotated = sentence_elem.get("isAnnotated") == "True"
+
+                    print(f"Processing Sentence {sentence_counter}: {raw_text}")
+                    
+                    sentence = Sentence(
+                        sentence_number=sentence_counter,
+                        content=raw_text,
+                        is_annotated=is_annotated,
+                        project_id=new_project.id
+                    )
+                    db.session.add(sentence)
+                    db.session.flush()
+
+                    annotations_elem = sentence_elem.find("annotations")
+                    if annotations_elem is not None:
+                        for annotation_elem in annotations_elem.findall("annotation"):
+                            annotation_id = annotation_elem.get("id")
+                            annotated_word = annotation_elem.get("word_phrase")
+                            annotation_type = annotation_elem.get("annotation")
+                            annotated_by = annotation_elem.get("annotated_by")
+                            annotated_on = annotation_elem.get("annotated_on")
+
+                            print(f"Saving Annotation ID {annotation_id}: {annotation_type} -> {annotated_word}")
+
+                            annotation_record = Annotation(
+                                word_phrase=annotated_word,
+                                annotation=annotation_type,
+                                annotated_by=annotated_by,
+                                annotated_on=datetime.datetime.strptime(annotated_on, "%Y-%m-%d"),
+                                sentence_id=sentence.id,
+                                project_id=new_project.id
+                            )
+                            db.session.add(annotation_record)
+                    
+                    sentence_counter += 1  # Increment for next sentence
 
         except ET.ParseError as e:
             db.session.rollback()
@@ -183,32 +155,28 @@ def create_project(data, current_user):
             db.session.rollback()
             print(f"Unexpected Error: {str(e)}")  # Debugging
             return jsonify({'message': f'An error occurred: {str(e)}'}), 500
-
-
+    
     else:
         print("Detected Plain Text input.")  # Debugging
-        sentences = split_into_sentences(file_text)
+        sentences = re.split(r"[।|।।|\.|\?]", file_text) # Basic sentence splitting, replace with better logic if needed
 
-        sentence_counter = 1  # Ensure numbering starts from 1 for each new project
-
-        for sentence_text in sentences:  
+        for sentence_text in sentences:
             clean_text = sentence_text.strip()
-            print(f"Saving Sentence {sentence_counter}: {clean_text}")
+            if clean_text:
+                print(f"Saving Sentence {sentence_counter}: {clean_text}")
 
-            sentence = Sentence(
-                sentence_number=sentence_counter,  # Assign sequential number
-                content=clean_text,
-                is_annotated=False,
-                project_id=new_project.id
-            )
-            db.session.add(sentence)
-
-            sentence_counter += 1 
-
+                sentence = Sentence(
+                    sentence_number=sentence_counter,
+                    content=clean_text,
+                    is_annotated=False,
+                    project_id=new_project.id
+                )
+                db.session.add(sentence)
+                sentence_counter += 1  # Increment for the next sentence
+    
     db.session.commit()
     print("Project Successfully Created!")  # Debugging
     return new_project
-
 
 def delete_project(project_id):
     project = Project.query.get(project_id)
@@ -236,14 +204,33 @@ def delete_project(project_id):
         return {"error": str(e)}, 500
 
 
+
+
 def split_into_sentences(text):
     if not text:
         return []
 
-    # Split the text by full stop or '|', filter out any empty sentences
-    sentences = [s.strip() for s in re.findall(r'[^।|?!]+[.।|?!]', text)]
+    # Ensure a space after each sentence-ending punctuation if missing
+    text = re.sub(r'([।|?!\.])([^\s])', r'\1 \2', text)
 
-    return sentences
+    # Split using sentence-ending punctuation
+    sentences = [s.strip() for s in re.split(r'(\|\||[।|?!\.])', text) if s.strip()]
+
+    # Merge punctuation with the preceding sentence
+    merged_sentences = []
+    temp_sentence = ""
+
+    for part in sentences:
+        if part in {"।", "|", "||", "?", "!", "."}:
+            temp_sentence += part  # Append punctuation
+            merged_sentences.append(temp_sentence.strip())  # Store full sentence
+            temp_sentence = ""  # Reset for next sentence
+        else:
+            temp_sentence = part  # Start a new sentence
+
+    return merged_sentences
+
+
 def get_projects_by_language(language):
     project = Project.query.filter_by(language=language).order_by(Project.id .desc()).all()
     return project
@@ -255,10 +242,17 @@ def get_projects():
 
 
 
-def get_projects_with_annotation_counts():
-    # Subquery to count annotated sentences for each project
+def get_projects_with_annotation_counts(user_language):
     annotated_subquery, unannotated_subquery = get_annotation_subquery()
-    # Main query to get projects with annotated and unannotated counts
+
+    # Ensure user_language is always a list
+    if isinstance(user_language, str):
+        user_languages = [lang.strip() for lang in user_language.split(',')]
+    elif isinstance(user_language, list):
+        user_languages = [lang.strip() for lang in user_language]
+    else:
+        user_languages = []  # Handle unexpected types safely
+
     projects = db.session.query(
         Project,
         func.coalesce(annotated_subquery.c.annotated_count, 0).label('annotated_sentences'),
@@ -267,14 +261,17 @@ def get_projects_with_annotation_counts():
         annotated_subquery, Project.id == annotated_subquery.c.project_id
     ).outerjoin(
         unannotated_subquery, Project.id == unannotated_subquery.c.project_id
-    ).order_by(Project.id.desc()).all()  # Note the correction here
+    ).filter(
+        Project.language.in_(tuple(user_languages)) if user_languages else True  # Avoid empty filter issue
+    ).order_by(Project.id.desc()).all()
+
     return projects
 
 
-def get_projects_with_annotation_counts_with_language(language):
-    # Subquery to count annotated sentences for each project
+def get_projects_with_annotation_counts_for_user(user_id):
     annotated_subquery, unannotated_subquery = get_annotation_subquery()
-    # Main query to get projects with annotated and unannotated counts
+
+    # Fetch projects assigned to the user
     projects = db.session.query(
         Project,
         func.coalesce(annotated_subquery.c.annotated_count, 0).label('annotated_sentences'),
@@ -283,8 +280,13 @@ def get_projects_with_annotation_counts_with_language(language):
         annotated_subquery, Project.id == annotated_subquery.c.project_id
     ).outerjoin(
         unannotated_subquery, Project.id == unannotated_subquery.c.project_id
-    ).filter(Project.language == language).order_by(Project.id.desc()).all()  # Note the correction here
+    ).filter(
+        Project.assigned_to == user_id  # ✅ Fetch projects where this user is assigned
+    ).order_by(Project.id.desc()).all()
+
     return projects
+
+
 
 def get_annotation_subquery():
     annotated_subquery = db.session.query(
@@ -311,12 +313,41 @@ def assign_user_to_project(project_id, user_id):
         return {"error": "User not found"}, 404
 
     # Update project assignment
-    project.assigned_to = user.name  # You could store user.name or user.id here
+    project.assigned_to = user.id  # You could store user.name or user.id here
     project.is_assigned = True
 
     db.session.commit()
 
-    return {"message": f"Project assigned to {user.name}"}, 200
+    # Send email notification
+    try:
+        send_assignment_email(user.email, user.name, project.title)
+    except Exception as e:
+        print(f"Email sending failed: {e}")
+
+    return {"message": f"Project assigned to {user.name} and email sent"}, 200
+
+
+def send_assignment_email(user_email, user_name, project_title):
+    """ Sends an email notification when a user is assigned to a project """
+    subject = "Project Assignment Notification - NER Annotation Workbench"
+    body = f"""
+    Hello {user_name},
+
+    You have been assigned to the project "{project_title}" in the NER Annotation Workbench.
+
+    Please log in to your account to start working on the project.
+
+    Regards,
+    NER Annotation Workbench Team
+    """
+    
+    msg = Message(subject=subject, sender="mwa.iiith@gmail.com", recipients=[user_email])
+    msg.body = body
+    try:
+        mail.send(msg)
+        print(f"Email sent successfully to {user_email}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
 
 def is_user_assigned_to_project(project_id):
