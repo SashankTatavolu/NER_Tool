@@ -2,12 +2,11 @@ import datetime
 import re
 
 from flask import jsonify
-from flask_mail import Message
 from sqlalchemy import func
 
 from app.models.annotation_model import Annotation
 from app.models.user_model import User
-
+from flask_mail import Message
 from .. import db,mail
 from ..models.project_model import Project
 import xml.etree.ElementTree as ET
@@ -158,7 +157,13 @@ def create_project(data, current_user):
     
     else:
         print("Detected Plain Text input.")  # Debugging
-        sentences = re.split(r"[।|।।|\.|\?]", file_text) # Basic sentence splitting, replace with better logic if needed
+
+        # Check if text contains Manipuri characters
+        if re.search(r'[\uABC0-\uABFF]', file_text):  # Manipuri Unicode range
+            sentences = split_manipuri_sentences(file_text)
+        else:
+            # Fallback to standard sentence splitting for other languages
+            sentences = re.split(r'[।|॥|\.|\?|!]\s*', file_text)
 
         for sentence_text in sentences:
             clean_text = sentence_text.strip()
@@ -172,7 +177,7 @@ def create_project(data, current_user):
                     project_id=new_project.id
                 )
                 db.session.add(sentence)
-                sentence_counter += 1  # Increment for the next sentence
+                sentence_counter += 1
     
     db.session.commit()
     print("Project Successfully Created!")  # Debugging
@@ -206,29 +211,48 @@ def delete_project(project_id):
 
 
 
-def split_into_sentences(text):
-    if not text:
-        return []
+import re
 
-    # Ensure a space after each sentence-ending punctuation if missing
-    text = re.sub(r'([।|?!\.])([^\s])', r'\1 \2', text)
 
-    # Split using sentence-ending punctuation
-    sentences = [s.strip() for s in re.split(r'(\|\||[।|?!\.])', text) if s.strip()]
 
-    # Merge punctuation with the preceding sentence
-    merged_sentences = []
-    temp_sentence = ""
-
-    for part in sentences:
-        if part in {"।", "|", "||", "?", "!", "."}:
-            temp_sentence += part  # Append punctuation
-            merged_sentences.append(temp_sentence.strip())  # Store full sentence
-            temp_sentence = ""  # Reset for next sentence
+def split_manipuri_sentences(text):
+    # Manipuri-specific delimiters including Chakhei (꯫) and others
+    delimiters = [
+        '\uABEB',  # Manipuri Chakhei (꯫)
+        '!',
+        '\?',
+        '।',       # Devanagari Danda
+        '॥',       # Devanagari Double Danda
+        '\n\n'     # Double newlines
+    ]
+    
+    # Create regex pattern that matches any delimiter followed by optional whitespace
+    pattern = '([' + ''.join(delimiters) + ']+\s*)'
+    
+    # Split text while keeping delimiters
+    parts = re.split(pattern, text)
+    
+    sentences = []
+    current_sentence = ''
+    
+    for part in parts:
+        if not part.strip():
+            continue
+            
+        # If part is a delimiter, finalize current sentence
+        if re.fullmatch(pattern, part):
+            if current_sentence:
+                sentences.append(current_sentence.strip())
+                current_sentence = ''
         else:
-            temp_sentence = part  # Start a new sentence
+            current_sentence += part
+    
+    # Add any remaining text
+    if current_sentence.strip():
+        sentences.append(current_sentence.strip())
+    
+    return sentences
 
-    return merged_sentences
 
 
 def get_projects_by_language(language):
@@ -241,8 +265,7 @@ def get_projects():
     return project
 
 
-
-def get_projects_with_annotation_counts(user_language):
+def get_projects_with_annotation_counts(user_language, organization=None):
     annotated_subquery, unannotated_subquery = get_annotation_subquery()
 
     # Ensure user_language is always a list
@@ -251,9 +274,10 @@ def get_projects_with_annotation_counts(user_language):
     elif isinstance(user_language, list):
         user_languages = [lang.strip() for lang in user_language]
     else:
-        user_languages = []  # Handle unexpected types safely
+        user_languages = []
 
-    projects = db.session.query(
+    # Build base query
+    query = db.session.query(
         Project,
         func.coalesce(annotated_subquery.c.annotated_count, 0).label('annotated_sentences'),
         func.coalesce(unannotated_subquery.c.unannotated_count, 0).label('unannotated_sentences')
@@ -261,11 +285,20 @@ def get_projects_with_annotation_counts(user_language):
         annotated_subquery, Project.id == annotated_subquery.c.project_id
     ).outerjoin(
         unannotated_subquery, Project.id == unannotated_subquery.c.project_id
+    ).join(
+        User, Project.uploaded_by == User.email # or User.email if that's what uploaded_by stores
     ).filter(
-        Project.language.in_(tuple(user_languages)) if user_languages else True  # Avoid empty filter issue
-    ).order_by(Project.id.desc()).all()
+        Project.language.in_(tuple(user_languages)) if user_languages else True
+    )
+
+    # Apply organization filter if provided
+    if organization:
+        query = query.filter(User.organisation == organization)
+
+    projects = query.order_by(Project.id.desc()).all()
 
     return projects
+
 
 
 def get_projects_with_annotation_counts_for_user(user_id):
@@ -318,36 +351,7 @@ def assign_user_to_project(project_id, user_id):
 
     db.session.commit()
 
-    # Send email notification
-    try:
-        send_assignment_email(user.email, user.name, project.title)
-    except Exception as e:
-        print(f"Email sending failed: {e}")
-
-    return {"message": f"Project assigned to {user.name} and email sent"}, 200
-
-
-def send_assignment_email(user_email, user_name, project_title):
-    """ Sends an email notification when a user is assigned to a project """
-    subject = "Project Assignment Notification - NER Annotation Workbench"
-    body = f"""
-    Hello {user_name},
-
-    You have been assigned to the project "{project_title}" in the NER Annotation Workbench.
-
-    Please log in to your account to start working on the project.
-
-    Regards,
-    NER Annotation Workbench Team
-    """
-    
-    msg = Message(subject=subject, sender="mwa.iiith@gmail.com", recipients=[user_email])
-    msg.body = body
-    try:
-        mail.send(msg)
-        print(f"Email sent successfully to {user_email}")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+    return {"message": f"Project assigned to {user.name}"}, 200
 
 
 def is_user_assigned_to_project(project_id):
@@ -376,3 +380,26 @@ def update_project_title(project_id, new_title):
     except Exception as e:
         db.session.rollback()
         return {"error": str(e)}, 500
+
+
+def send_assignment_email(user_email, user_name, project_title):
+    """ Sends an email notification when a user is assigned to a project """
+    subject = "Project Assignment Notification - NER Annotation Workbench"
+    body = f"""
+    Hello {user_name},
+
+    You have been assigned to the project "{project_title}" in the MWE Annotation Workbench.
+
+    Please log in to your account to start working on the project.
+
+    Regards,
+    NER Annotation Workbench Team
+    """
+    
+    msg = Message(subject=subject, sender="mwa.iiith@gmail.com", recipients=[user_email])
+    msg.body = body
+    try:
+        mail.send(msg)
+        print(f"Email sent successfully to {user_email}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")

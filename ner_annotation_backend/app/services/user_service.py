@@ -137,6 +137,11 @@ def get_user_language(email):
     return user.language.split(",") if user.language else []  # Convert string back to list
 
 
+def get_user_organisation(user_email):
+    user = User.query.filter_by(email=user_email).first()
+    return user.organisation if user else None
+
+
 def update_user_profile(email, data):
     user = User.query.filter_by(email=email).first()
     if not user:
@@ -187,19 +192,20 @@ def send_feedback_email(user_name, user_email, feedback_text):
 
         You have received a new feedback submission.
 
+        User Name: {user_name}
         User Email: {user_email}
 
         Feedback:
         {feedback_text}
 
         Regards,
-        MWE Annotation Tool
+        NER Annotation Tool
         """
 
         msg = Message(subject, sender="noreply@nertool.com", recipients=["sashank.tatavolu@research.iiit.ac.in"])
         msg.body = body
         mail.send(msg)
-        
+
         return True
     except Exception as e:
         print("Error sending feedback email:", e)

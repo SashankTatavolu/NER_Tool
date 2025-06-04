@@ -12,5 +12,6 @@
         "NUMEX",
         "मंत्रा",
         "राजभाषा"
-    ]
+    ],
+    "cmake.sourceDirectory": "/home/sashank/Downloads/ISHAAN workshop tools/NER_tool/ner_annotation_workbench/windows/runner"
 }

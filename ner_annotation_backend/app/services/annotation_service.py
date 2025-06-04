@@ -62,19 +62,6 @@ def get_project_annotations(project_id):
     sentences = Sentence.query.filter_by(project_id=project_id).all()
     return sentences
 
-def delete_annotation(annotation_id):
-    try:
-        annotation = Annotation.query.get(annotation_id)
-        if not annotation:
-            return {"message": "Annotation not found"}, 404
-
-        db.session.delete(annotation)
-        db.session.commit()
-        return {"message": "Annotation deleted successfully"}, 200
-    except Exception as e:
-        db.session.rollback()
-        return {"message": f"An error occurred: {str(e)}"}, 500
-
 
 def generate_annotations_xml(sentences):
     root = ET.Element("project")

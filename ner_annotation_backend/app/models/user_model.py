@@ -10,6 +10,6 @@ class User(db.Model):
     language = db.Column(db.String(50), nullable=False)
     registered_on = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     role = db.Column(db.String(50), nullable=False)
-    organisation = db.Column(db.String(150), nullable=True)
-    reset_token = db.Column(db.String(100), nullable=True, unique=True)
-    reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    organisation = db.Column(db.String(150), nullable=True) 
+    
+    

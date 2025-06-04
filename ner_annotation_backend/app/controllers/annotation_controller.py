@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
-
+from .. import db
+from ..models.annotation_model import Annotation
+from ..models.sentence_model import Sentence
 from ..schemas.annotation_schema import annotations_schema
 from ..services.annotation_service import  search_annotations, search_sentences_by_annotation, upload_annotated_xml, upload_annotations, get_annotations, get_project_annotations, \
-    generate_annotations_xml, generate_annotations_txt, delete_annotation
+    generate_annotations_xml, generate_annotations_txt
 
 annotation_blueprint = Blueprint('annotation_blueprint', __name__)
 
@@ -24,18 +26,26 @@ def get_annotations_route():
     annotation_data = get_annotations(data)
     return annotations_schema.jsonify(annotation_data)
 
-
-@annotation_blueprint.route("/delete_annotation", methods=['DELETE'])
+@annotation_blueprint.route("/clear_annotations", methods=['POST'])
 @jwt_required()
-def delete_annotation_route():
-    current_user = get_jwt_identity()
+def clear_annotations_route():
     data = request.json
-    annotation_id = data.get("annotation_id")
+    sentence_id = data.get("sentence_id")
+    project_id = data.get("project_id")
+    
+    if not sentence_id or not project_id:
+        return jsonify({'message': 'sentence_id and project_id are required'}), 400
 
-    if not annotation_id:
-        return jsonify({"message": "annotation_id is required"}), 400
+    Annotation.query.filter_by(sentence_id=sentence_id, project_id=project_id).delete()
 
-    return delete_annotation(annotation_id)
+    sentence = Sentence.query.get(sentence_id)
+    if sentence:
+        sentence.is_annotated = False
+        db.session.add(sentence)
+
+    db.session.commit()
+    return jsonify({'message': 'Annotations cleared successfully'}), 200
+
 
 
 @annotation_blueprint.route('/download_annotations_xml', methods=['POST'])

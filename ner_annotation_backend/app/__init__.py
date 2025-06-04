@@ -15,8 +15,8 @@ mail = Mail()
 
 def create_app():
     app = Flask(__name__)
-    # app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@10.129.6.206/mweAnnotationPlatform'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Sashank123@localhost/NER'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@10.129.6.206/ner'
+    # app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Sashank123@localhost/NER'
     # app.config['SQLALCHEMY_DATABASE_URI']='postgresql://postgres:password123@10.2.8.12/MWE_tool'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
